@@ -1,8 +1,8 @@
 #ifndef STARK_OPS
 #define STARK_OPS
 
-#include "StarKDialect.td"
-#include "mlir/Interfaces/SideEffectInterfaces.td"
+include "StarKDialect.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 
 def ConstantOp : StarK_Op<"constant", [Pure]>{
@@ -12,12 +12,12 @@ def ConstantOp : StarK_Op<"constant", [Pure]>{
         Constant tensors storage
     }];
 
-    let builders = {
+    let builders = [
         OpBuilder<(ins "mlir::DenseElementAttr":$value),[{
             build($_builder, $_state, value.getType(),value);
         }]>,
-        OpBuilder<ins "double":$value>
-    };
+        OpBuilder<(ins "double":$value)>
+    ];
 
     let arguments = (ins F64ElementsAttr:$value);
     let results =(outs F64Tensor);

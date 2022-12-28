@@ -23,6 +23,6 @@ def StarK_Dialect : Dialect{
 // Base StarK operation definition.
 //===----------------------------------------------------------------------===//
 
-class StarK_op<string mnemonic, list<Trait> traits =[]>:Op<StarK_Dialect, mnemonic, traits>;
+class StarK_Op<string mnemonic, list<Trait> traits =[]>:Op<StarK_Dialect, mnemonic, traits>;
 
 #endif // StarK_Dialect
