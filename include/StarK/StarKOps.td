@@ -1,5 +1,5 @@
-#ifndef StarK_OPS
-#define StarK_OPS
+#ifndef STARK_OPS
+#define STARK_OPS
 
 include "StarKDialect.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -44,5 +44,5 @@ def PrintOp : StarK_Op<"print", [Pure]> {
 }
 
 
-#endif //StarK_OPS
+#endif //STARK_OPS
 

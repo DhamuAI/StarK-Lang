@@ -20,10 +20,15 @@
 
 namespace cl = llvm::cl;
 
-static cl::opt<<std::string> inputFilename(cl::Positional,
-                                           cl::desc("<input StarK file>"),
-                                           cl::init("-"),
-                                           cl::value_desc("filename"));
+// static cl::opt<std::string> inputFilename(cl::Positional,
+//                                            cl::desc("<input StarK file>"),
+//                                            cl::init("-"),
+//                                            cl::value_desc("filename"));
+
+static cl::opt<std::string> inputFilename(cl::Positional,
+                                          cl::desc("<input hello file>"),
+                                          cl::init("-"),
+                                          cl::value_desc("filename"));
 
 
 int dumpLLVMIR(mlir::ModuleOp module) {

@@ -25,4 +25,4 @@ def StarK_Dialect : Dialect{
 
 class StarK_Op<string mnemonic, list<Trait> traits =[]>:Op<StarK_Dialect, mnemonic, traits>;
 
-#endif // StarK_Dialect
+#endif // STARK_DIALECT
