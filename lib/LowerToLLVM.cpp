@@ -22,7 +22,9 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/Sequence.h"
 
+
 namespace StarK {
+
 class PrintOpLowering : public mlir::ConversionPattern {
 public:
   explicit PrintOpLowering(mlir::MLIRContext *context)
@@ -37,12 +39,14 @@ public:
 
     mlir::ModuleOp parentModule = op->getParentOfType<mlir::ModuleOp>();
 
+    // Get a symbol reference to the printf function, inserting it if necessary.
     auto printfRef = getOrInsertPrintf(rewriter, parentModule);
     mlir::Value formatSpecifierCst = getOrCreateGlobalString(
         loc, rewriter, "frmt_spec", mlir::StringRef("%f \0", 4), parentModule);
     mlir::Value newLineCst = getOrCreateGlobalString(
         loc, rewriter, "nl", mlir::StringRef("\n\0", 2), parentModule);
 
+    // Create a loop for each of the dimensions within the shape.
     mlir::SmallVector<mlir::Value, 4> loopIvs;
     for (unsigned i = 0, e = memRefShape.size(); i != e; ++i) {
       auto lowerBound = rewriter.create<mlir::arith::ConstantIndexOp>(loc, 0);
@@ -55,8 +59,10 @@ public:
       }
       loopIvs.push_back(loop.getInductionVar());
 
+      // Terminate the loop body.
       rewriter.setInsertionPointToEnd(loop.getBody());
 
+      // Insert a newline after each of the inner dimensions of the shape.
       if (i != e - 1) {
         rewriter.create<mlir::func::CallOp>(loc, printfRef, rewriter.getIntegerType(32), newLineCst);
       }
@@ -64,11 +70,13 @@ public:
       rewriter.setInsertionPointToStart(loop.getBody());
     }
 
+    // Generate a call to printf for the current element of the loop.
     auto printOp = mlir::cast<StarK::PrintOp>(op);
     auto elementLoad = rewriter.create<mlir::memref::LoadOp>(loc, printOp.getInput(), loopIvs);
     rewriter.create<mlir::func::CallOp>(loc, printfRef, rewriter.getIntegerType(32),
                             mlir::ArrayRef<mlir::Value>({formatSpecifierCst, elementLoad}));
 
+    // Notify the rewriter that this operation has been removed.
     rewriter.eraseOp(op);
     return mlir::success();
   }
@@ -94,6 +102,7 @@ private:
   static mlir::Value getOrCreateGlobalString(mlir::Location loc, mlir::OpBuilder &builder,
                                        mlir::StringRef name, mlir::StringRef value,
                                        mlir::ModuleOp module) {
+    // Create the global at the entry of the module.
     mlir::LLVM::GlobalOp global;
     if (!(global = module.lookupSymbol<mlir::LLVM::GlobalOp>(name))) {
       mlir::OpBuilder::InsertionGuard insertGuard(builder);
@@ -104,6 +113,7 @@ private:
                                               builder.getStringAttr(value));
     }
 
+    // Get the pointer to the first character in the global string.
     mlir::Value globalPtr = builder.create<mlir::LLVM::AddressOfOp>(loc, global);
     mlir::Value cst0 = builder.create<mlir::LLVM::ConstantOp>(
             loc, mlir::IntegerType::get(builder.getContext(), 64),

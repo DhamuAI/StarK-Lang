@@ -1,39 +1,48 @@
-#ifndef STARK_OPS
-#define STARK_OPS
+#ifndef StarK_OPS
+#define StarK_OPS
 
 include "StarKDialect.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 
-def ConstantOp : StarK_Op<"constant", [Pure]>{
-    let summary = "constant";
+def ConstantOp : StarK_Op<"constant", [Pure]> {
+  let summary = "constant";
+  let description = [{
+    Constant operation turns a literal into an SSA value. The data is attached
+    to the operation as an attribute. For example:
 
-    let description =[{
-        Constant tensors storage
-    }];
+    ```mlir
+      %0 = "StarK.constant"()
+      { value = dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf64> }
+      : () -> tensor<2x3xf64>
+    ```
+  }];
 
-    let builders = [
-        OpBuilder<(ins "mlir::DenseElementAttr":$value),[{
-            build($_builder, $_state, value.getType(),value);
-        }]>,
-        OpBuilder<(ins "double":$value)>
-    ];
+  let builders = [
+    OpBuilder<(ins "mlir::DenseElementsAttr":$value), [{
+      build($_builder, $_state, value.getType(), value);
+    }]>,
+    OpBuilder<(ins "double":$value)>
+  ];
 
-    let arguments = (ins F64ElementsAttr:$value);
-    let results =(outs F64Tensor);
+//  let parser = [{ return ::parseConstantOp(parser, result); }];
+  let arguments = (ins F64ElementsAttr:$value);
+  let results = (outs F64Tensor);
 }
 
-def PrintOp : StarK_op<"print",[Pure]>{
-    let summary = "print operation"
-
+def PrintOp : StarK_Op<"print", [Pure]> {
+    let summary = "print operation";
     let description = [{
-        The "print" builtin operation
+        The "print" builtin operation prints a given input tensor, and produces
+        no results.
     }];
-    let arguments = (ins AnyTypeOf<[F64Tensor,F64Memref]>:$input);
+
+    // The print operation takes an input tensor to print.
+    let arguments = (ins AnyTypeOf<[F64Tensor, F64MemRef]>:$input);
 
     let assemblyFormat = "$input attr-dict `:` type($input)";
-
 }
 
-#endif //STARK_OPS
+
+#endif //StarK_OPS
 

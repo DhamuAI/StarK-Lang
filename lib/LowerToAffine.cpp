@@ -1,12 +1,12 @@
 #include "StarK/StarKDialect.h"
 #include "StarK/StarKOps.h"
-#include "StarK/StarKpasses.h"
+#include "StarK/StarKPasses.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Artih/IR/Arith.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/pass/Pass.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/Sequence.h"
 
@@ -14,113 +14,141 @@ static mlir::MemRefType convertTensorToMemRef(mlir::TensorType type){
     assert(type.hasRank() && "expected only ranked shapes");
     return mlir::MemRefType::get(type.getShape(), type.getElementType());
 }
+static mlir::Value insertAllocAndDealloc(mlir::MemRefType type, mlir::Location loc,
+                                         mlir::PatternRewriter &rewriter) {
+  auto alloc = rewriter.create<mlir::memref::AllocOp>(loc, type);
 
-static mlir::Value insertAllocAndDealloc(mlir::MemRefType type, mlir::Location loc, mlir::PatternRewriter &rewriter){
-    auto alloc - rewriter.create<mlir::memref::AllocOp>(loc, type);
-    
-    auto *partentBlock = alloc->getBlock();
-    alloc->moveBefore(&parentBlock->front());
+  // Make sure to allocate at the beginning of the block.
+  auto *parentBlock = alloc->getBlock();
+  alloc->moveBefore(&parentBlock->front());
 
-    auto dealloc = rewrite.create<mlir::memref::DeallocOp>(loc, alloc);
-    dealloc->moveBefore(&parentBlock->back());
-    
-    return alloc;
-
+  // Make sure to deallocate this alloc at the end of the block. This is fine
+  // as toy functions have no control flow.
+  auto dealloc = rewriter.create<mlir::memref::DeallocOp>(loc, alloc);
+  dealloc->moveBefore(&parentBlock->back());
+  return alloc;
 }
 
-class ConstantOpLowering : public mlir::OpRewritePattern<StarK::ConstantOp>{
-    using OpRewritePattern<StarK::ConstantOp>::OpRewritePattern;
+class ConstantOpLowering : public mlir::OpRewritePattern<StarK::ConstantOp> {
+  using OpRewritePattern<StarK::ConstantOp>::OpRewritePattern;
 
-    mlir::LogicalResult matchAndRewrite(StarK::ConstantOp op, mlir::PatternRewriter &rewriter) const final{
-        mlir::DenseElementsAttr constantValue = op.getValue();
-        mlir::Location loc = op.getLoc();
+  mlir::LogicalResult matchAndRewrite(StarK::ConstantOp op, mlir::PatternRewriter &rewriter) const final {
+    mlir::DenseElementsAttr constantValue = op.getValue();
+    mlir::Location loc = op.getLoc();
 
+    // When lowering the constant operation, we allocate and assign the constant
+    // values to a corresponding memref allocation.
+    auto tensorType = op.getType().cast<mlir::TensorType>();
+    auto memRefType = convertTensorToMemRef(tensorType);
+    auto alloc = insertAllocAndDealloc(memRefType, loc, rewriter);
 
-        auto tensorType = op.getType().cast<mlir::TensorType();
-        auto memRefType = convertTensorToMemRef(tensorType);
-        auto alloc = insertAllocandDealloc(memRefType, loc, rewriter);
+    // We will be generating constant indices up-to the largest dimension.
+    // Create these constants up-front to avoid large amounts of redundant
+    // operations.
+    auto valueShape = memRefType.getShape();
+    mlir::SmallVector<mlir::Value, 8> constantIndices;
 
-        auto valueShape = memRefType.getShape();
-        mlir::SmallVector<mlir::Value, 8> constantIndices;
-
-        if(!valueShapes.empty()){
-            for(auto i: llvm::seq<int 64_t>(
-                0, *std::max_element(valueShape.begin(),valueShape.end())
-            )
-            )
-        constantIndices.push_back(rewriter.create<mlir::arith::ConstantIndexOp(loc,i));
-        }else{
-        constantIndices.push_back(rewriter.create<mlir::arith::ConstantIndexOp(loc,0));
-        }
-
-        mlir::SmallVector<mlir::Value,2> indices;
-
-        auto valueIt = constantValue.getValues<mlir::FloatAttr>().begin();
-
-        std::function<void(uint64_t)> storeElements = [&](uint64_t dimension){
-            if(dimension == valueShape.size()){
-                rewriter.create<mlir::AffineStoreOp>{
-                    loc, rewriter.create<mlir::arith::ConstantOp>(loc, *valueIt++, alloc, llvm::makeArrayRef(indices));
-                    return;
-                }
-            
-
-        for(uint64_t i=0, e=valueShape[dimension]; i!=e;++i){
-            indices.push_back(constantIndices[i]);
-            storeElements(dimension+1);
-            indices.pop_back();
-        }
-        };
-
-        storeElements(0);
-        rewrite.replaceOp(op,alloc);
-        return mlir::success();
-
+    if (!valueShape.empty()) {
+      for (auto i : llvm::seq<int64_t>(
+          0, *std::max_element(valueShape.begin(), valueShape.end())))
+        constantIndices.push_back(rewriter.create<mlir::arith::ConstantIndexOp>(loc, i));
+    } else {
+      // This is the case of a tensor of rank 0.
+      constantIndices.push_back(rewriter.create<mlir::arith::ConstantIndexOp>(loc, 0));
     }
-};
+    // The constant operation represents a multi-dimensional constant, so we
+    // will need to generate a store for each of the elements. The following
+    // functor recursively walks the dimensions of the constant shape,
+    // generating a store when the recursion hits the base case.
 
-class PrintOpLowering : public mlir::OpConversionPattern<StarK::PrintOp>{
+    // [4, 3] (1, 2, 3, 4, 5, 6, 7, 8)
+    // storeElements(0)
+    //   indices = [0]
+    //   storeElements(1)
+    //     indices = [0, 0]
+    //     storeElements(2)
+    //       store (const 1) [0, 0]
+    //     indices = [0]
+    //     indices = [0, 1]
+    //     storeElements(2)
+    //       store (const 2) [0, 1]
+    //  ...
+    //
+    mlir::SmallVector<mlir::Value, 2> indices;
+    auto valueIt = constantValue.getValues<mlir::FloatAttr>().begin();
+    std::function<void(uint64_t)> storeElements = [&](uint64_t dimension) {
+      // The last dimension is the base case of the recursion, at this point
+      // we store the element at the given index.
+      if (dimension == valueShape.size()) {
+        rewriter.create<mlir::AffineStoreOp>(
+            loc, rewriter.create<mlir::arith::ConstantOp>(loc, *valueIt++), alloc,
+            llvm::makeArrayRef(indices));
+        return;
+      }
 
-    using mlir::OpConversionPattern<StarK::PrintOp>::OpConversionPattern;
-
-    mlir::LogicalResult matchAndRewrite(StarK::PrintOp op, OpAdaptor adaptor, mlir::ConversionPatternRewriter &rewriter) const final{
-        rewriter.updateRootinPlace(op, [&]{op->setOperands(adaptor.getOperands());});
-        return mlir::sucesss();
-    }
-
-};
-
-namespace{
-    class StarKToAffineLowerPass : public mlir::PassWrapper<StarKToAffineLowerPass, mlir::OperationPass<mlir::ModuleOp>>{
-        public:
-            MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(StarKToAffineLowerPass)
-        void getDependentDialects(mlir::DialectRegistry &registry) const override{
-            registry.insert<mlir::AffineDialect, mlir::func::FuncDialect, mlir::memref::MemRefDialect>();
-        }
-
-        void runOperation() final;
+      // Otherwise, iterate over the current dimension and add the indices to
+      // the list.
+      for (uint64_t i = 0, e = valueShape[dimension]; i != e; ++i) {
+        indices.push_back(constantIndices[i]);
+        storeElements(dimension + 1);
+        indices.pop_back();
+      }
     };
+
+    // Start the element storing recursion from the first dimension.
+    storeElements(/*dimension=*/0);
+
+    // Replace this operation with the generated alloc.
+    rewriter.replaceOp(op, alloc);
+    return mlir::success();
+  }
+};
+
+class PrintOpLowering : public mlir::OpConversionPattern<StarK::PrintOp> {
+  using OpConversionPattern<StarK::PrintOp>::OpConversionPattern;
+
+  mlir::LogicalResult matchAndRewrite(StarK::PrintOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+      // We don't lower "StarK.print" in this pass, but we need to update its
+      // operands.
+      rewriter.updateRootInPlace(op,
+                                 [&] { op->setOperands(adaptor.getOperands()); });
+      return mlir::success();
+  }
+};
+
+namespace {
+class StarKToAffineLowerPass : public mlir::PassWrapper<StarKToAffineLowerPass, mlir::OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(StarKToAffineLowerPass)
+
+  void getDependentDialects(mlir::DialectRegistry &registry) const override {
+      registry.insert<mlir::AffineDialect, mlir::func::FuncDialect, mlir::memref::MemRefDialect>();
+  }
+
+  void runOnOperation() final;
+};
 }
 
-void StarKToAffineLowerPass::runOnOperation(){
-    mlir::ConversionTarger target(getContext());
+void StarKToAffineLowerPass::runOnOperation() {
+  mlir::ConversionTarget target(getContext());
 
-    target.addIllegalDialect<StarK::StarKDialect>();
-    target.addLegalDialect<mlir::AffineDialect, mlir::BuiltinDialect, mlir::func::FuncDialect, mlir::arith::ArithDialect, mlir::memref::MemRefDialect>();
-    target.addDynamicallyLegalOp<StarK::PrintOp>([](StarK::PrintOp op)){
-        return llvm::none_of(op->getOperandTypes(),[](mlir::Type type){
-            return type.isa<mlir::TensorType();
-        });
+  target.addIllegalDialect<StarK::StarKDialect>();
+  target.addLegalDialect<mlir::AffineDialect, mlir::BuiltinDialect,
+    mlir::func::FuncDialect, mlir::arith::ArithDialect, mlir::memref::MemRefDialect>();
+  target.addDynamicallyLegalOp<StarK::PrintOp>([](StarK::PrintOp op) {
+      return llvm::none_of(op->getOperandTypes(),
+                           [](mlir::Type type) { return type.isa<mlir::TensorType>(); });
+  });
 
-    mlir::RewritePatternSet patterns(&getContext());
-    patterns.add<ConstantOpLowering, PrintOpLowering>(&getContext());
+  mlir::RewritePatternSet patterns(&getContext());
+  patterns.add<ConstantOpLowering, PrintOpLowering>(&getContext());
 
-    if(mlir::failed(mlir::applyPartialConversion(getOperation(),target,std::move(patterns)))){
-        signalPassFailure();
-    }
-    
-    }
-    std::unique_ptr<mlir::Pass> StarK::createLowerToAffinePass(){
-        return std::make_unique<StarKToAffineLowerPass>();
-    }
+  if (mlir::failed(mlir::applyPartialConversion(getOperation(), target, std::move(patterns)))) {
+    signalPassFailure();
+  }
+}
+
+std::unique_ptr<mlir::Pass> StarK::createLowerToAffinePass() {
+  return std::make_unique<StarKToAffineLowerPass>();
 }

@@ -10,7 +10,7 @@ include "mlir/IR/OpBase.td"
 def StarK_Dialect : Dialect{
     let name = "StarK";
 
-    let summary = "Stark Dialect provides 'Hi_intro' to MLIR";
+    let summary = "StarK Dialect provides 'Hi_intro' to MLIR";
 
     let description = [{"StarK Dialect have printable tensor const op";
     }];
