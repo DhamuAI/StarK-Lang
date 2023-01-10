@@ -32,6 +32,13 @@ include(AddLLVM)
 include(AddMLIR)
 include(HandleLLVMOptions)
 
+function(add_mlir_interface interface)
+  set(LLVM_TARGET_DEFINITIONS ${interface}.td)
+  mlir_tablegen(${interface}.hpp.inc -gen-op-interface-decls)
+  mlir_tablegen(${interface}.cpp.inc -gen-op-interface-defs)
+  add_public_tablegen_target(MLIRStarK${interface}IncGen)
+endfunction()
+
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${MLIR_INCLUDE_DIRS})
 include_directories(${PROJECT_SOURCE_DIR}/include)

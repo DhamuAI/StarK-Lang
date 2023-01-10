@@ -3,15 +3,17 @@ add_mlir_dialect_library(MLIRStarK
                         StarKOps.cpp
                         LowerToAffine.cpp
                         LowerToLLVM.cpp
+                        ShapeInferenceOpInterface.cpp
 
-        
-        
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/StarK 
 
         DEPENDS
-        MLIRStarKOpsIncGen  
+        MLIRStarKOpsIncGen
+        MLIRStarKShapeInferenceOpInterfaceIncGen
 
         LINK_LIBS PUBLIC  
         MLIRIR  
         )
+
+

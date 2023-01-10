@@ -6,6 +6,10 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "ShapeInferenceOpInterface.hpp"
+#include "mlir/IR/Value.h"
+
+
 
 
 #define GET_OP_CLASSES

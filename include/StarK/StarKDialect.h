@@ -7,6 +7,9 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/IR/Value.h"
+
+
 
 #include "StarK/StarKOpsDialect.h.inc"
 
