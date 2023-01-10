@@ -12,12 +12,6 @@ def ConstantOp : StarK_Op<"constant", [Pure]> {
   let description = [{
     Constant operation turns a literal into an SSA value. The data is attached
     to the operation as an attribute. For example:
-
-    ```mlir
-      %0 = "StarK.constant"()
-      { value = dense<[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]> : tensor<2x3xf64> }
-      : () -> tensor<2x3xf64>
-    ```
   }];
 
   let builders = [
